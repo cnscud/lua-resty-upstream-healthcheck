@@ -1,0 +1,126 @@
+
+    # for health check
+    lua_package_path "/opt/conf/nginx/scripts/?.lua;;";
+
+    lua_shared_dict healthcheck 5m;
+
+    lua_socket_log_errors off;
+
+    init_worker_by_lua_block {
+            local hc = require "resty.upstream.healthcheck"
+
+            local hostnamebyupstream = {
+                ["web1"] = {"www.yourdomain.com"},
+                ["img1"] = {"f1.yourdomain.cn", "/ping.txt"}
+            }
+
+            for k, v in pairs(hostnamebyupstream) do
+                    local myhost = v[1]
+                    local pingurl
+                    local reqstr
+
+                    if #v >1 then
+                        pingurl = v[2]
+                    else
+                        pingurl = "/ping/"
+                    end
+
+                    if myhost == nil then
+                        reqstr = "GET "..pingurl.." HTTP/1.0\r\n\r\n"
+                    else
+                        reqstr = "GET "..pingurl.." HTTP/1.0\r\nHost: "..myhost.."\r\n\r\n"
+                    end
+
+                    local ok, err = hc.spawn_checker{
+                        shm = "healthcheck",  -- defined by "lua_shared_dict"
+                        upstream = k, -- defined by "upstream"
+                        type = "http",
+                        http_req = reqstr,
+                        interval = 3000,  -- run the check cycle every 2 sec
+                        timeout = 1000,   -- 1 sec is the timeout for network operations
+                        fall = 3,  -- # of successive failures before turning a peer down
+                        rise = 2,  -- # of successive successes before turning a peer up
+                        valid_statuses = {    200, 302     },
+                        valid_response = "pong", -- check body
+                        concurrency = 10,  -- concurrency level for test requests
+                    }
+
+                    if not ok then
+                        ngx.log(ngx.ERR, "failed to spawn health checker: ", err)
+                        return
+                    end
+            end
+    }
+
+
+server {
+    listen       80;
+    server_name  localhost;
+
+    access_log  /opt/logs/nginx/localhost.access.log  body;
+
+    location / {
+        root   /opt/webapps/localhost;
+        index  index.html index.htm;
+    }
+
+    error_page 403 /403.html;
+
+    # redirect server error pages to the static page /50x.html
+    error_page   500 502 503 504  /50x.html;
+    location = /50x.html {
+        root   html;
+    }
+
+
+    location = /upstream_status {
+        access_log off;
+        allow 127.0.0.1;
+        deny all;
+
+        default_type text/plain;
+        content_by_lua_block {
+        local hc = require "resty.upstream.healthcheck"
+                        ngx.say("Nginx Worker PID: ", ngx.worker.pid())
+                        ngx.print(hc.status_page())
+        }
+    }
+
+    location = /upstream_list {
+        default_type text/plain;
+        content_by_lua_block {
+        local concat = table.concat
+                        local upstream = require "ngx.upstream"
+                        local get_servers = upstream.get_servers
+                        local get_upstreams = upstream.get_upstreams
+
+                        local us = get_upstreams()
+                        for _, u in ipairs(us) do
+                            ngx.say("upstream ", u, ":")
+                            local srvs, err = get_servers(u)
+                            if not srvs then
+                                ngx.say("failed to get servers in upstream ", u)
+                            else
+                                for _, srv in ipairs(srvs) do
+                                    local first = true
+                                    for k, v in pairs(srv) do
+                                        if first then
+                                            first = false
+                                            ngx.print("    ")
+                                        else
+                                            ngx.print(", ")
+                                        end
+                                        if type(v) == "table" then
+                                            ngx.print(k, " = {", concat(v, ", "), "}")
+                                        else
+                                            ngx.print(k, " = ", v)
+                                        end
+                                    end
+                                    ngx.print("\n")
+                                end
+                            end
+                        end
+        }
+    }
+
+}

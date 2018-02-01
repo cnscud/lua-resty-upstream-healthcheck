@@ -203,6 +203,12 @@ local function peer_error(ctx, is_backup, id, peer, ...)
     peer_fail(ctx, is_backup, id, peer)
 end
 
+
+local function trim(s)
+    return s:match'^%s*(.*%S)' or ''
+end
+
+
 local function check_peer(ctx, id, peer, is_backup)
     local ok, err
     local name = peer.name
@@ -262,6 +268,52 @@ local function check_peer(ctx, id, peer, is_backup)
         if not statuses[status] then
             peer_error(ctx, is_backup, id, peer, "bad status code from ",
                        name, ": ", status)
+            sock:close()
+            return
+        end
+    end
+
+    -- if set valid_response, do check
+    local valid_response = ctx.valid_response
+    if valid_response then
+        local response, err = sock:receive('*a')
+
+        if not response then
+            peer_error(ctx, is_backup, id, peer,
+                "failed to receive body from ", name, ": ", err)
+
+            sock:close() -- timeout errors do not close the socket.
+            return
+        end
+
+        local lines = {}
+        response = response .. "\r\n" -- for match last line
+        for s in string.gmatch(response, "([^\r\n]*)\r\n") do
+            table.insert(lines, s)
+        end
+
+        local headend
+        local body = ""
+        for i=1,#lines do
+            local line = lines[i]
+            if line == "" then
+                headend = true
+            else
+                if headend then
+                    body = trim(line)
+                    break
+                end
+            end
+        end
+
+        if body ~= valid_response then
+            local strlen = string.len(body)
+            local shortbody = body
+            if strlen > 20 then
+                shortbody = sub(body, 1, 20) -- max 20
+            end
+            peer_error(ctx, is_backup, id, peer,
+                "body is not valid, current: ", body, name, ": ", err)
             sock:close()
             return
         end
@@ -533,6 +585,12 @@ function _M.spawn_checker(opts)
         return nil, "\"http_req\" option required"
     end
 
+    -- if need valid response
+    local valid_response = opts.valid_response
+    if not valid_response then
+        valid_response = nil
+    end
+
     local timeout = opts.timeout
     if not timeout then
         timeout = 1000
@@ -612,6 +670,7 @@ function _M.spawn_checker(opts)
         fall = fall,
         rise = rise,
         statuses = statuses,
+        valid_response = valid_response, -- valid response
         version = 0,
         concurrency = concur,
     }
