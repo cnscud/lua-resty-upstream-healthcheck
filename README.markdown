@@ -6,6 +6,10 @@ just for enhance.
 
 lua-resty-upstream-healthcheck - Health-checker for Nginx upstream servers
 
+修改人
+====
+@author Felix Zhang
+
 说明
 ====
 1. 增加: 健康检查的是否支持内容校验, 当然一般用简单的内容标识运行正常.

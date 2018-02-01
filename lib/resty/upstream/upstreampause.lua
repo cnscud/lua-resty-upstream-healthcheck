@@ -2,7 +2,7 @@
 --
 -- Note: if you don't need health check, you can create a timer by your self, set_peer_down by your code
 --
--- @author: felix zhang
+-- @author: Felix Zhang by cnscud@gmail.com
 -- @since: 2018/2/1 17:33
 --
 

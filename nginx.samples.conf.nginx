@@ -1,3 +1,6 @@
+    #
+    # sample for health check and upstream pause function
+    # Felix Zhang  by cnscud@gmail.com
 
     # for health check
     lua_package_path "/opt/conf/nginx/scripts/?.lua;;";
