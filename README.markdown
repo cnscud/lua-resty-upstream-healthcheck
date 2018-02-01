@@ -75,7 +75,7 @@ lua-resty-upstream-healthcheck - Health-checker for Nginx upstream servers
 示例2: 用url方式暂停upstream的peer (必须和healthcheck一起工作, 否则无效)
 ====
 
-    # 参数: upstream名字(待定) server=ip:port status=要切换的状态: true/default(这里指默认状态)/false
+    # 参数: upstream名字  server=ip:port status=要切换的状态: true/false
     location /upstream_pause {
         default_type 'text/plain';
 
