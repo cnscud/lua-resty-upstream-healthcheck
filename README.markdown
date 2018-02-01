@@ -72,5 +72,40 @@ lua-resty-upstream-healthcheck - Health-checker for Nginx upstream servers
     }
 
 
+示例2: 用url方式暂停upstream的peer (必须和healthcheck一起工作, 否则无效)
+====
 
-    
+    # 参数: upstream名字(待定) server=ip:port status=要切换的状态: true/default(这里指默认状态)/false
+    location /upstream_pause {
+        default_type 'text/plain';
+
+        content_by_lua_block {
+
+                local u = ngx.var.arg_upstream
+                local server_ip = ngx.var.arg_ip
+                local server_port = ngx.var.arg_port
+                local pausestatus = ngx.var.arg_pause
+
+                ngx.log(ngx.WARN, "info ", u, server_ip, server_port, tostatus)
+
+                local up = require "resty.upstream.upstreampause"
+
+                local ok, err = up.pause{
+                    ip = server_ip, port = server_port, upstream = u, pause = pausestatus,
+                    shm = "healthcheck" -- should same with health check now
+                }
+
+                if not ok then
+                    ngx.say("failed to call upstream pause: " .. err)
+                    return
+                else
+                    ngx.say("ok")
+                end
+        }
+    }
+
+
+调用方法:   
+* curl "http://192.168.6.99/upstream_pause/?upstream=web1&ip=192.168.6.22&port=8001&pause=true"   
+* curl "http://192.168.6.99/upstream_pause/?upstream=web1&ip=192.168.6.22&port=8001&pause=false"
+   

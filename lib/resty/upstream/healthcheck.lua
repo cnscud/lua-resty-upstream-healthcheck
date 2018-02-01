@@ -22,8 +22,8 @@ local _M = {
 }
 
 if not ngx.config
-   or not ngx.config.ngx_lua_version
-   or ngx.config.ngx_lua_version < 9005
+        or not ngx.config.ngx_lua_version
+        or ngx.config.ngx_lua_version < 9005
 then
     error("ngx_lua 0.9.5+ required")
 end
@@ -132,11 +132,11 @@ local function peer_fail(ctx, is_backup, id, peer)
     end
 
     -- print("ctx fall: ", ctx.fall, ", peer down: ", peer.down,
-          -- ", fails: ", fails)
+    -- ", fails: ", fails)
 
     if not peer.down and fails >= ctx.fall then
         warn("peer ", peer.name, " is turned down after ", fails,
-                " failure(s)")
+            " failure(s)")
         peer.down = true
         set_peer_down_globally(ctx, is_backup, id, true)
     end
@@ -189,7 +189,7 @@ local function peer_ok(ctx, is_backup, id, peer)
 
     if peer.down and succ >= ctx.rise then
         warn("peer ", peer.name, " is turned up after ", succ,
-                " success(es)")
+            " success(es)")
         peer.down = nil
         set_peer_down_globally(ctx, is_backup, id, nil)
     end
@@ -208,12 +208,55 @@ local function trim(s)
     return s:match'^%s*(.*%S)' or ''
 end
 
+-- 检查peer是否被通知暂停服务, 如果是, 则设置down
+local function check_peer_pause(ctx, id, peer, is_backup)
+    local dict = ctx.dict
+    local u = ctx.upstream
 
+    local key_d = gen_peer_key("pd:", u, isbackup, peer.id)
+    local res, err = dict:get(key_d)
+    if not res then
+        return 0 -- normal
+    end
+
+    debug("pd key: ".. key_d .. " value: " .. tostring(res))
+
+    if res > 1 then
+        return 1 -- don't need health check now
+    end
+
+    if res ~= 1 then
+        return -1  -- error value
+    end
+
+    if not peer.down then
+        warn("peer ", peer.name, " is turned down for pause command on upstream " , u)
+        peer.down = true
+        set_peer_down_globally(ctx, is_backup, id, true)
+    end
+
+    local ok, err = dict:set(key_d, 11)
+    if not ok then
+        errlog("failed to set peer pause_state to 11: ", err)
+    end
+
+    return 1 -- don't need health check now
+end
+
+
+-- real check peer by socket
 local function check_peer(ctx, id, peer, is_backup)
     local ok, err
     local name = peer.name
     local statuses = ctx.statuses
     local req = ctx.http_req
+
+    -- 检查 pause status, 如果有, 则跳过检查
+    local ret = check_peer_pause(ctx, id, peer, is_backup)
+    if ret == 1 then
+        return
+    end
+
 
     local sock, err = stream_sock()
     if not sock then
@@ -239,13 +282,13 @@ local function check_peer(ctx, id, peer, is_backup)
     local bytes, err = sock:send(req)
     if not bytes then
         return peer_error(ctx, is_backup, id, peer,
-                          "failed to send request to ", name, ": ", err)
+            "failed to send request to ", name, ": ", err)
     end
 
     local status_line, err = sock:receive()
     if not status_line then
         peer_error(ctx, is_backup, id, peer,
-                   "failed to receive status line from ", name, ": ", err)
+            "failed to receive status line from ", name, ": ", err)
         if err == "timeout" then
             sock:close()  -- timeout errors do not close the socket.
         end
@@ -254,12 +297,12 @@ local function check_peer(ctx, id, peer, is_backup)
 
     if statuses then
         local from, to, err = re_find(status_line,
-                                      [[^HTTP/\d+\.\d+\s+(\d+)]],
-                                      "joi", nil, 1)
+            [[^HTTP/\d+\.\d+\s+(\d+)]],
+            "joi", nil, 1)
         if not from then
             peer_error(ctx, is_backup, id, peer,
-                       "bad status line from ", name, ": ",
-                       status_line)
+                "bad status line from ", name, ": ",
+                status_line)
             sock:close()
             return
         end
@@ -267,7 +310,7 @@ local function check_peer(ctx, id, peer, is_backup)
         local status = tonumber(sub(status_line, from, to))
         if not statuses[status] then
             peer_error(ctx, is_backup, id, peer, "bad status code from ",
-                       name, ": ", status)
+                name, ": ", status)
             sock:close()
             return
         end
@@ -351,7 +394,7 @@ local function check_peers(ctx, peers, is_backup)
 
                 if debug_mode then
                     debug("spawn a thread checking ",
-                          is_backup and "backup" or "primary", " peer ", i - 1)
+                        is_backup and "backup" or "primary", " peer ", i - 1)
                 end
 
                 threads[i] = spawn(check_peer, ctx, i - 1, peers[i], is_backup)
@@ -359,7 +402,7 @@ local function check_peers(ctx, peers, is_backup)
             -- use the current "light thread" to run the last task
             if debug_mode then
                 debug("check ", is_backup and "backup" or "primary", " peer ",
-                      n - 1)
+                    n - 1)
             end
             check_peer(ctx, n - 1, peers[n], is_backup)
 
@@ -382,12 +425,12 @@ local function check_peers(ctx, peers, is_backup)
 
                 if debug_mode then
                     debug("spawn a thread checking ",
-                          is_backup and "backup" or "primary", " peers ",
-                          from - 1, " to ", to - 1)
+                        is_backup and "backup" or "primary", " peers ",
+                        from - 1, " to ", to - 1)
                 end
 
                 threads[i] = spawn(check_peer_range, ctx, from, to, peers,
-                                   is_backup)
+                    is_backup)
                 from = from + group_size
                 if rest == 0 then
                     break
@@ -398,7 +441,7 @@ local function check_peers(ctx, peers, is_backup)
 
                 if debug_mode then
                     debug("check ", is_backup and "backup" or "primary",
-                          " peers ", from - 1, " to ", to - 1)
+                        " peers ", from - 1, " to ", to - 1)
                 end
 
                 check_peer_range(ctx, from, to, peers, is_backup)
@@ -585,15 +628,15 @@ function _M.spawn_checker(opts)
         return nil, "\"http_req\" option required"
     end
 
+    local timeout = opts.timeout
+    if not timeout then
+        timeout = 1000
+    end
+
     -- if need valid response
     local valid_response = opts.valid_response
     if not valid_response then
         valid_response = nil
-    end
-
-    local timeout = opts.timeout
-    if not timeout then
-        timeout = 1000
     end
 
     local interval = opts.interval
@@ -735,7 +778,7 @@ function _M.status_page()
         local peers, err = get_primary_peers(u)
         if not peers then
             return "failed to get primary peers in upstream " .. u .. ": "
-                   .. err
+                    .. err
         end
 
         idx = gen_peers_status_info(peers, bits, idx)
@@ -746,7 +789,7 @@ function _M.status_page()
         peers, err = get_backup_peers(u)
         if not peers then
             return "failed to get backup peers in upstream " .. u .. ": "
-                   .. err
+                    .. err
         end
 
         idx = gen_peers_status_info(peers, bits, idx)
